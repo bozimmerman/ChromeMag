@@ -1,0 +1,16 @@
+ChromeMag (C)2001-2019 Bo Zimmerman, Tom Gosser
+Please read the LICENSE file for license information
+Please read the NOTICE file for credits information
+Home Page: http://www.zimmers.net/geos/
+
+ChromeMag is the official reader/browser for the GEOS Disk Magazine of the same name, published by Tom Gosser.
+
+Building:
+ChromeMag was built using Concept for Wheels 64.  It might also build using geoProgrammer, but hasn't been tested.
+
+In addition to the given source, you'll require several components from the geoModules project:
+https://github.com/bozimmerman/geoModules
+
+The included source can be built from scratch, provided the necessary geoModules include files and object files are present.
+
+

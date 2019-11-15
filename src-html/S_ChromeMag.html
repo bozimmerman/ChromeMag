@@ -1,0 +1,775 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+.if 	Pass1
+.include	GEOSequates
+.endif
+
+ProgStart:
+10$:	jsr	SetUp
+RePresent:	jsr	Present
+	sei
+	ldw	appMain,#0
+	cli
+	cbi	sysDBData,#$ff
+	bne	10$
+	jmp	EnterDeskTop
+10$:	jmp	View	; and view and back again
+
+
+SetUp:	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	jsr	UseSystemFont
+	jsr	FixDT
+	jsr	ChromeClr
+	ldb	PresPg,#0	; start on page 0
+	ldy	#$ff
+10$:	iny
+	lda	$81a0,y	; copy volume info
+	sta	Volume,y
+	cmp	#0
+	bne	10$
+	ldw	R6,#DocList	; now set up to get geowrite
+	ldb	R7L,#7	; files
+	ldb	R7H,#35
+	ldw	R10,#WriteTxt
+	jsr	FindFTypes	; and get them all
+	ldb	DocsTot,#35
+	sbb	R7H,DocsTot	; adjust the total files
+	ldw	DocsPtr,#DocList
+	jsr	WeedDocs
+	ldw	Col80Adj,#0	; initialiZe doc pointer
+	ldb	Byt80Adj,#0	; and c128 80 col adjustments
+	cwi	rightMargin,#$140
+	blt	18$
+	ldw	Col80Adj,#$a0
+	ldb	Byt80Adj,#$14
+18$:	jsr	FixClr
+	jsr	FixVew
+	jsr	FixPg0	; now adjust all graphics
+	jsr	FixPg1	; according to above adjusts
+	jsr	i_InitGeoR
+	.word FontBuf
+	.word 1999
+	.word CardBuf
+	rts
+ChromeClr:	mvw	rightMargin,SetUp3+1
+	jsr	i_GraphicsString
+	.byte	$05,0
+	.byte	$01,0,0,0
+SetUp3:	.byte	$03,0,0,199
+	.byte	$00
+	rts
+CMtxt:	.byte	".cm",0
+WriteTxt:	.byte	"Write Image ",0
+
+
+WeedDocs:	mvw	DocsPtr,A0	; this will be ahead pointer
+	ldb	A2L,#0	; and this is counter
+	mvb	DocsTot,A2H	; and this is total
+WD1:	cpb	A2L,A2H	; at end of documents yet?
+	blt	11$	; if not, continue
+	rts
+11$:	inc	A2L
+	ldy	#$ff
+12$:	iny		; find end of string
+	lda	(A0),y
+	bne	12$
+	cpy	#3
+	ble	14$	; if string too small, BAD
+	dey
+	dey
+	dey
+	dey		; now back up three chars
+	ldx	#$ff
+13$:	inx
+	iny
+	lda	CMtxt,x	; start comparing to ".cm"
+	beq	16$	; reached end, so GOOD!
+	cmp	(A0),y
+	beq	13$
+14$:	mvw	A0,A1	; prepare to LOSE DOCUMENT
+	mvw	A0,A3	; by shuffling all data
+	avw	#17,A3	; ahead pointer is a3
+	dec	DocsTot	; losing a document!
+15$:	cwi	A3,#(DocList+1000)
+	bgt	17$	; done with copy? yes=LOOP
+	ldy	#0
+	lda	(A3),y	; copy a byte
+	sta	(A1),y
+	inw	A3	; and increment pointers
+	inw	A1
+	bra	15$	; back up for more
+16$:	dey		; this one GOOD, so ...
+	dey		; Zero out the extension
+	dey
+	lda	#0
+	sta	(A0),y
+	avw	#17,A0	; and increment
+17$:	jmp	WD1	; and back up	
+
+
+FixDT:	ldw	A2,#DTME	; returning from C64 shell?
+	ldw	A3,#$c3cf
+	jsr	CmpStr
+	beq	10$
+	ldw	A2,#DTME	; returning from C128 shell?
+	ldw	A3,#$ca01
+	jsr	CmpStr
+	beq	20$
+	rts
+10$:	ldw	A2,#DT64	; fix C64 shell!
+	ldw	A3,#$c3cf
+	jsr	CpyStr
+	rts	
+20$:	ldw	A2,#DT128	; fix C128 shell!
+	ldw	A3,#$ca01
+	jsr	CpyStr
+	rts	
+BreakDT:	ldw	A2,#DT64	; returning from C64 shell?
+	ldw	A3,#$c3cf
+	jsr	CmpStr
+	beq	10$
+	ldw	A2,#DT128	; returning from C128 shell?
+	ldw	A3,#$ca01
+	jsr	CmpStr
+	beq	20$
+	rts
+10$:	ldw	A2,#DTME	; fix C64 shell!
+	ldw	A3,#$c3cf
+	jsr	CpyStr
+	rts	
+20$:	ldw	A2,#DTME	; fix C128 shell!
+	ldw	A3,#$ca01
+	jsr	CpyStr
+	rts
+DT128:	.byte	"128 DESKTOP",0
+DT64:	.byte	"DESKTOP",0
+DTME:	.byte	"ChromeMag",0
+
+Present:	lda	#[(PrnBox)
+	sta	$02	; set lsb for dialog data
+	lda	#](PrnBox)
+	sta	$03	; set msb for dialog data
+	jmp	$c256	; call DoDlgBox and leave!
+PrnBox:	.byte	$01	; size flag, and shadow pattern
+	.byte	$1e,$ab,$2a,$00,$15,$01	; dialog box dimensions
+	.byte	$11
+	.word PresPress
+	.byte	$13	; all external dialog gfx
+	.word PresPgDo
+	.byte	$00	; end of table
+
+
+
+PresClr:	jsr	$c1a8	; i_GraphicsString
+Adj1:	.byte	$01,$2b,$00,$1f	; MOVEPENTO Xl,Xh,Y
+	.byte	$05,$02	; NEWPATTERN
+	.byte	$03,$2b,$00,$1f	; RETANGLETO  Xl,Xh,Y
+	.byte	$01,$5d,$00,$4b	; MOVEPENTO Xl,Xh,Y
+	.byte	$03,$5d,$00,$4b	; RETANGLETO  Xl,Xh,Y
+	.byte	$01,$2b,$00,$1f	; MOVEPENTO Xl,Xh,Y
+	.byte	$03,$14,$01,$aa	; RETANGLETO  Xl,Xh,Y
+	.byte	$00
+	jsr	$c1ab	; i_BitmapUp
+	.word PrnBmp2
+Adj2:	.byte	$1d,$9b,$06,$10	; col, row, width, height
+	rts
+FixClr:	adw	Col80Adj,PrnBox+3	; fixes present box
+	adw	Col80Adj,PrnBox+5	; fixes present box
+	adw	Col80Adj,Adj1+1
+	adw	Col80Adj,Adj1+7
+	adw	Col80Adj,Adj1+11
+	adw	Col80Adj,Adj1+15
+	adw	Col80Adj,Adj1+19
+	adw	Col80Adj,Adj1+23
+	adb	Byt80Adj,Adj2
+	rts
+
+PresPgDo:	sei
+	ldw	appMain,#PresKey
+	cli
+	cbi	PresPg,#0
+	bne	10$
+	jmp	PresPg0
+10$:	cmp	#1
+	bne	11$
+	jmp	PresPg1
+11$:	jsr	PresClr
+	jsr	PsBord
+	ldb	DocBoxP,#$2a
+	ldw	DocsOnPg,#0
+	jsr	DocShow
+	rts
+
+PsBord:	lda	#$01
+	jsr	SetPattern
+	ldb	R2L,#$1e
+	ldb	R2H,#$ab
+	ldw	R3,#$0029
+	ldw	R4,#$002b
+	adw	Col80Adj,R3
+	adw	Col80Adj,R4
+	jsr	Rectangle	
+	ldb	Temp,#$20
+	ldb	Temp+1,#$ad
+	ldw	Temp+2,#$0116
+	ldw	Temp+4,#$0117
+	jsr	DoBord
+	ldb	Temp,#$ac
+	ldb	Temp+1,#$ad
+	ldw	Temp+2,#$002d
+	ldw	Temp+4,#$0117
+
+DoBord:	ldb	Temp+6,#$06
+	ldb	Temp+7,#$02
+	adw	Col80Adj,Temp+2
+	adw	Col80Adj,Temp+4
+10$:	lda	Temp+7
+	jsr	SetPattern
+	mvw	Temp,R2
+	mvw	Temp+2,R3
+	mvw	Temp+4,R4
+	jsr	Rectangle
+	inc	Temp	; begin next row coord adj
+	inc	Temp
+	inc	Temp+1
+	inc	Temp+1
+	inw	Temp+2
+	inw	Temp+2
+	inw	Temp+4
+	inw	Temp+4	; end next row coord adj
+	dec	Temp+7
+	bne	11$
+	ldb	Temp+7,#$02
+11$:	dec	Temp+6
+	bne	10$
+	rts
+
+PresPg0:	jsr	PresClr
+	jsr	PsBord
+	jsr	$c1ab	; i_BitmapUp
+	.word PrnBmp3
+Adj3:	.byte	$0f,$8c,$0b,$18	; user clickbox (QUIT)
+	jsr	$c1ab	; i_BitmapUp
+	.word PrnBmp1
+Adj4:	.byte	$06,$28,$1c,$30	; col, row, width, height
+	jsr	$c1a8	; i_GraphicsString
+Adj5:	.byte	$01,$74,$00,$66	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$74,$00,$66	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$01,$6d,$00,$65	; MOVEPENTO Xl,Xh,Y
+	.byte	$05,$00	; NEWPATTERN
+	.byte	$03,$6d,$00,$65	; RETANGLETO  Xl,Xh,Y
+	.byte	$01,$4a,$00,$61	; MOVEPENTO Xl,Xh,Y
+	.byte	$03,$f3,$00,$74	; RETANGLETO  Xl,Xh,Y
+	.byte	$01,$f3,$00,$74	; MOVEPENTO Xl,Xh,Y
+	.byte	$03,$f3,$00,$74	; RETANGLETO  Xl,Xh,Y
+	.byte	$01,$4a,$00,$61	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$f4,$00,$75	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$01,$f4,$00,$75	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$f4,$00,$75	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$00	; end of table
+	ldw	DocsPtr,#DocList
+	ldw	R0,#Volume
+	ldb	R1H,#$70
+	ldw	R11,#$5e
+	lda	Byt80Adj
+	beq	10$
+	ldw	R11,#$4d
+10$:	adw	Col80Adj,R11
+	jsr	PutString
+	rts
+FixPg0:	adb	Byt80Adj,Adj3
+	adb	Byt80Adj,Adj4
+	adw	Col80Adj,Adj5+1
+	adw	Col80Adj,Adj5+5
+	adw	Col80Adj,Adj5+9
+	adw	Col80Adj,Adj5+15
+	adw	Col80Adj,Adj5+19
+	adw	Col80Adj,Adj5+23
+	adw	Col80Adj,Adj5+27
+	adw	Col80Adj,Adj5+31
+	adw	Col80Adj,Adj5+35
+	adw	Col80Adj,Adj5+39
+	adw	Col80Adj,Adj5+43
+	adw	Col80Adj,Adj5+47
+	rts
+
+PresPg1:	jsr	PresClr
+	jsr	PsBord
+	jsr	$c1ab	; i_BitmapUp
+	.word PrnBmp4
+Adj7:	.byte	$0c,$26,$10,$18	; col, row, width, height
+	ldb	DocBoxP,#$40
+	ldw	DocsPtr,#DocList
+	ldw	DocsOnPg,#0
+	jsr	DocShow
+	rts
+FixPg1:	adb	Byt80Adj,Adj7
+	rts
+
+View:	jsr	StartMouseMode
+	jsr	VewGfx
+	sei
+	ldw	otherPressVec,#ViewPress
+	ldw	appMain,#ViewKey
+	cli
+	jsr	DoView
+	rts
+VewTxt1:	.byte	"Page",27,0
+VewGfx:	jsr	ChromeClr
+	lda	Byt80Adj
+	beq	10$
+	ldb	AdjA,#$4a	
+10$:	jsr	$c1ab	; i_BitmapUp
+	.word PrnBmp2
+AdjA:	.byte	$22,$b7,$06,$10	; col, row, width, height
+	jsr	$c1a8	; i_GraphicsString
+	.byte	$05,$01	; NEWPATTERN
+	.byte	$01,$00,$00,$00	; MOVEPENTO Xl,Xh,Y
+AdjB:	.byte	$07,$3f,$01,$c7	; MOVEPENTO Xl,Xh,Y
+	.byte	$01,$00,$00,$00	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$2a,$01,$0e	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$01,$2a,$01,$0e	; MOVEPENTO Xl,Xh,Y
+	.byte	$02,$3f,$01,$0e	; LINETO Xl,Xh,Y
+	.byte	$01,$30,$01,$04	; MOVEPENTO Xl,Xh,Y
+Adj0:	.byte	$03,$39,$01,$0a	; RETANGLETO  Xl,Xh,Y
+	.byte	$01,$00,$00,$02	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$2a,$01,$0c	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$01,$00,$00,$04	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$2a,$01,$0a	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$01,$00,$00,$06	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$2a,$01,$08	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$00	; end of table
+	jsr	i_BitmapUp
+	.word PrnBmp7
+	.byte	$04,$00	; print icon
+	.byte	$02,$10
+	mvw	Selected,R0
+	ldb	R1H,#$09
+	ldw	R11,#$46
+	jsr	PutString
+	ldb	R1H,#$09
+	mvw	rightMargin,R11
+	svw	#$3a,R11
+	lda	Col80Adj	; skip this "other" adjustment
+	beq	10$
+	svw	#$10,R11
+10$:	ldw	R0,#VewTxt1
+	jsr	PutString
+	rts	
+
+FixVew:	mvw	rightMargin,Temp
+	mvw	rightMargin,Temp+2
+	svw	#$15,Temp+2
+	mvw	Temp,AdjB+1
+	mvw	Temp+2,AdjB+9
+	mvw	Temp+2,AdjB+13
+	mvw	Temp,AdjB+17
+	mvw	Temp,AdjB+21
+	svw	#$0f,AdjB+21
+	mvw	Temp,Adj0+1
+	svw	#$06,Adj0+1
+	mvw	Temp+2,Adj0+9
+	mvw	Temp+2,Adj0+17
+	mvw	Temp+2,Adj0+25
+	rts
+
+DoView:	jsr	FixFname
+	sty	Temp
+	ldb	A3L,#$0f
+	ldb	A3H,#$b3
+	ldw	A4,#$05
+	mvw	rightMargin,A5
+	svw	#$05,A5
+	jsr	OpenGeoR	; now open the damn thing
+	cpx	#$00
+	bne	99$
+	ldy	#$00	; now look for a SelLoad
+11$:	lda	$81a0,y
+	beq	13$	; Zero terminated
+	sta	SelLoad,y
+	iny
+	cpy	#$10	; 16 characters max!
+	ble	11$
+12$:	ldb	SelLoad,#0	; not found, so clear n cont
+	beq	14$
+13$:	sta SelLoad,y	; found? maybe.. store 0
+	cpy	#0	; but if filelength=0, no!
+	beq	12$
+	ldb	$886e,#0
+	ldw	R6,#SelLoad
+	jsr	FindFile	; look for potential SelLoad
+	cpx	#0	; is it real?
+	bne	12$	; if not, then clear it
+	jsr	i_BitmapUp
+	.word PrnBmp6	; Execute Icon
+	.byte	$01,$00
+	.byte	$02,$10
+14$:	mvw Selected,A2	; now setup page display
+	ldy	Temp
+	lda	#0	; reform the filename
+	sta	(A2),y	; by cutting the '.cm'
+	jsr	ViewPNum
+99$:	rts
+FixFname:	mvw	Selected,A2	; get the filename
+	ldy	#$ff	; find end
+10$:	iny
+	lda	(A2),y
+	bne 10$
+	lda	#'.'
+	sta	(A2),y	; replace the .cm extension
+	rts
+
+ViewPNum:	ldb	R1H,#$09	; dialog dims
+	mvw	rightMargin,R11
+	svw	#$26,R11
+	ldw	R0,#Nada
+	jsr	PutString	; to position the cursor
+	svw	#$20,R11
+	mvw	GEORPNUM,R0	; now the page number
+	lda	#$20	; field width
+	ora	#(64)
+	jsr	PutDecimal
+	rts
+Nada:	.byte	27,"  ",27,0	
+
+ViewPress:	cbi	mouseData,#0	; only care about mouse down
+	beq	10$
+99$:	rts
+10$:	ldb	R2L,#$00	; check the CLOSE box
+	ldb	R2H,#$0e
+	mvw	rightMargin,R3
+	mvw	rightMargin,R4
+	svw	#$15,R3
+	jsr	IsMseInRegion
+	cmp	#$ff
+	bne	11$
+	jmp	ViewOut
+11$:	lda	SelLoad	; IS there an execute button?
+	beq	12$
+	ldb	R2L,#$00	; in execute button?
+	ldb	R2H,#$0d
+	ldw	R3,#$08
+	ldw	R4,#$17
+	jsr	IsMseInRegion
+	cmp	#$ff
+	bne	12$
+	jmp	ViewExe
+12$:	ldb	R2L,#$00	; in print button?
+	ldb	R2H,#$0d
+	ldw	R3,#$20
+	ldw	R4,#$2f
+	jsr	IsMseInRegion
+	cmp	#$ff
+	bne	13$
+	jmp	ViewPrint
+13$:	jmp	ViewTurn
+
+
+ViewOut:	sei		; clicked on exit box, 
+	ldw	otherPressVec,#0
+	ldw	appMain,#0	; so end the view
+	cli
+	jsr	ChromeClr	; and GIT
+	jmp	RePresent
+
+ViewExe:	jsr	InvertRectangle	; clicked on execute box
+	jsr	i_YNBox	; so confirm
+	.word CXtxt0
+	cbi	sysDBData,#$03	; by checking for YES code
+	beq	10$
+	ldb	R2L,#$00	; in execute button?
+	ldb	R2H,#$0d
+	ldw	R3,#$08
+	ldw	R4,#$17
+	jmp	InvertRectangle
+10$:	sei		; clicked on exit box, 
+	ldw	otherPressVec,#0
+	ldw	appMain,#0	; so end the view
+	cli
+	jsr	BreakDT	; set for return to ChromeMag
+	jsr	ChromeClr	; and GIT
+	ldb	R0L,#$00	; set for EXECUTE
+	ldw	R6,#SelLoad
+	jmp	GetFile
+CXtxt0:	.byte $18,"Execute this program?",27,0
+
+ViewPrint:	jsr	InvertRectangle	; clicked on execute box
+	jsr	i_YNBox	; so confirm
+	.word CXtxt1
+	cbi	sysDBData,#$03	; by checking for YES code
+	beq	10$
+	ldb	R2L,#$00	; in execute button?
+	ldb	R2H,#$0d
+	ldw	R3,#$20
+	ldw	R4,#$2f
+	jmp	InvertRectangle
+10$:	jsr i_LdPrntDrv	; setup geowrite print driver
+	.word PBuf1
+	.word PBuf2
+	.byte 0	; no font buffer
+	cpx	#0
+	beq	11$
+	jsr	i_CNCLBox
+	.word txtNoPrint
+	jmp	View
+11$:	ldb	dispBufferOn,#ST_WR_FORE
+	jsr	ClrScrn
+	jsr	$c1a8	; i_GraphicsString
+	.byte	$01,$71,$00,$46	; MOVEPENTO Xl,Xh,Y
+	.byte	$07,$d3,$00,$75	; FRAME_RECTO  Xl,Xh,Y
+	.byte	$06,$8b,$00,$61,$18,"Printing...",27,0
+	jsr	$c1a8	; i_GraphicsString
+	.byte	$01,$d3,$00,$4b	; MOVEPENTO Xl,Xh,Y
+	.byte	$05,$01	; NEWPATTERN
+	.byte	$03,$d8,$00,$7a	; RETANGLETO  Xl,Xh,Y
+	.byte	$01,$76,$00,$75	; MOVEPENTO Xl,Xh,Y
+	.byte	$03,$d6,$00,$7a	; RETANGLETO  Xl,Xh,Y
+	.byte	$00	; end of table
+	jsr	FixFname	; replace the .cm
+	mvw	Selected,A2
+	ldb	A3L,#0	; set for text, plain
+	ldb	A3H,#1	; start with first page
+	ldb	A4L,#0	; to the end
+	jsr	PrntGeoW
+	ldb	dispBufferOn,#ST_WR_FORE | ST_WR_BACK
+	jsr	ClrScrn
+	jmp	View			
+txtNoPrint:	.byte	"No print driver found!!",27,0
+CXtxt1:	.byte	$18,"Is your printer ready?",27,0
+
+ViewKey:	lda	pressFlag
+	and	#$80	; anything to read?
+	bne	99$
+	rts
+99$:	jsr	GetNextChar
+	cmp	#$16	; stop key -- close
+	beq	10$
+	cmp	#$14	; back arrow -- close
+	bne	11$
+10$:	jmp	ViewOut
+11$:	cmp	#$2b	; plus key, page down
+	beq	12$
+	cmp	#$2d	; minus key, page up
+	beq	13$
+	cmp	#$10	; cursor up
+	beq	13$
+	cmp	#$11	; cursor down
+	bne	15$
+12$:	jsr	NextGPg	; next page
+	jsr	ViewPNum
+	lda	#0
+	rts		
+13$:	jsr	PrevGPg	; prev page
+	jsr	ViewPNum
+	lda	#0
+	rts	
+15$:	rts
+
+PresPress:	cbi	mouseData,#0	; only care about mouse down
+	beq	10$
+99$:	rts
+10$:	jsr	PresTurn
+	beq	99$
+	cbi	PresPg,#0	; are we on presentation page?
+	bne	11$
+	jsr	PresQChk	; was Quit Clicked?
+	bne	99$
+	ldb	sysDBData,#$ff	; yes, so exit!
+	jmp	RstrFrmDialog
+11$:	cbi	PresPg,#1
+	bne	12$
+	ldb	DocBoxP,#$40
+	ldw	DocsPtr2,#DocList
+	ldw	DocsOnP2,#0
+	jmp	ChkDocB
+12$:	ldb	DocBoxP,#$2a
+	mvw	DocsPtr,DocsPtr2
+	sbw	DocsOnPg,DocsPtr2
+	ldw	DocsOnP2,#0
+	jmp	ChkDocB	
+
+PresKey:	lda	pressFlag
+	and	#$80	; anything to read?
+	bne	99$
+	rts
+99$:	jsr	GetNextChar
+	cmp	#$16	; stop key -- close
+	beq	10$
+	cmp	#$14	; back arrow -- close
+	bne	11$
+10$:	lda	PresPg
+	beq	15$
+	ldw	DocsPtr,#DocList
+	ldb	PresPg,#0
+	jmp	PresPgDo
+11$:	cmp	#$2b	; plus key, page down
+	beq	12$
+	cmp	#$2d	; minus key, page up
+	beq	13$
+	cmp	#$10	; cursor up
+	beq	13$
+	cmp	#$11	; cursor down
+	bne	15$
+12$:	jmp	PresNXT
+13$:	jmp	PresPRV
+15$:	rts
+
+ChkDocB:	ldw	Selected,#0
+	cpw	DocsOnP2,DocsOnPg	; checked all buttons yet?
+	blt	10$
+	rts		; not clicked, so exit
+10$:	mvb	DocBoxP,R2L	; set first Y
+	mvb	DocBoxP,R2H
+	avb	#$04,R2L
+	avb	#$0f,R2H	; now have checkable Ys
+	ldw	R3,#$58
+	adw	Col80Adj,R3
+	mvw	R3,R4
+	avw	#$88,R4	; now have checkable Xs
+	jsr	IsMseInRegion
+	cmp	#$ff
+	beq	11$
+	avw	#17,DocsOnP2	; change DocPointer
+	avb	#$16,DocBoxP	; change Y box start
+	jmp	ChkDocB
+11$:	jsr	InvertRectangle
+	ldb	sysDBData,#0
+	mvw	DocsPtr,Selected	; now make filename ptr
+	sbw	DocsOnPg,Selected	; get back to top
+	adw	DocsOnP2,Selected	; and move on down
+	sbw	DocsOnPg,DocsPtr	; prepare to re-show page
+	jmp	RstrFrmDialog	; done!
+
+ViewTurn:	ldb	R2L,#$b7
+	ldb	R2H,#$c7
+	mvw	rightMargin,R3
+	mvw	rightMargin,R4
+	svw	#$48,R3
+	jsr	IsMseInRegion
+	cmp	#$ff
+	beq	10$
+99$:	rts	
+10$:	sbw	mouseXPos,R4	; now have distance frm right
+	lsr	R4L	; divide by two
+	adb	R2L,R4L	; now have divide line
+	cpb	mouseYPos,R4L	; where is y in respect?
+	blt	13$	; branch to "next page"
+	jsr	PrevGPg	; so concludes prev page
+	jsr	ViewPNum
+	lda	#0
+	rts
+13$:	jsr	NextGPg
+	jsr	ViewPNum
+	lda	#0
+	rts
+
+PresTurn:	ldw	R3,#$e8
+	adw	Col80Adj,R3
+	ldw	R4,#$118
+	adw	Col80Adj,R4
+	ldb	R2L,#$98
+	ldb	R2H,#$b0
+	jsr	IsMseInRegion
+	cmp	#$ff
+	beq	10$
+99$:	rts	
+10$:	sbw	mouseXPos,R4	; now have distance frm right
+	lsr	R4L	; divide by two
+	adb	R2L,R4L	; now have divide line
+	cpb	mouseYPos,R4L	; where is y in respect?
+	bge	PresPRV	; branch to "next page"
+	jmp	PresNXT
+PresPRV:	lda	PresPg
+	beq	99$	; not allowed, so return beq
+	dec	PresPg
+	beq	12$
+	sbw	DocsOnPg,DocsPtr
+11$:	svw	#85,DocsPtr	; page 1 takes are of self
+12$:	jsr	PresPgDo
+	lda	#0	; so concludes prev page
+99$:	rts
+PresNXT:	mvw	DocsPtr,R0
+	ldy	#0
+	lda	(R0),y	; out of docs to show?
+	bne	14$
+	rts
+14$:	inc	PresPg	; now to next page
+	jsr	PresPgDo
+	lda	#0
+	rts
+
+PresQChk:
+	ldb	R2L,#$8c
+	ldb	R2H,#$a4
+	ldw	R3,#$78
+	adw	Col80Adj,R3
+	ldw	R4,#$d0
+	adw	Col80Adj,R4
+	jsr	IsMseInRegion
+	cmp	#$ff
+	bne	99$
+	jsr	InvertRectangle
+	lda	#0
+99$:	rts
+
+DocShow:	mvw	DocsPtr,R0
+	ldy	#0
+	lda	(R0),y	; out of docs to show?
+	bne	10$
+	rts
+10$:	mvb	DocBoxP,R1H	; set first Y
+	ldw	R0,#PrnBmp5
+	ldb	R1L,#$0c
+	adb	Byt80Adj,R1L
+	ldb	R2L,#$10
+	ldb	R2H,#$18
+	jsr	BitmapUp
+	mvb	DocBoxP,R1H	; re-set first Y
+	avb	#$0d,R1H
+	ldw	R11,#$68
+	adw	Col80Adj,R11
+	mvw	DocsPtr,R0
+	jsr	PutString
+	avw	#17,DocsOnPg
+	avb	#$16,DocBoxP
+	avw	#17,DocsPtr
+	cbi	DocBoxP,#$90
+	bge	11$
+	jmp	DocShow
+11$:	rts
+
+
+
+PrnBmp1:
+
+<img src="00064.png" />PrnBmp2:
+<img src="00065.png" />PrnBmp3:
+<img src="00066.png" />PrnBmp4:
+<img src="00067.png" />PrnBmp5:
+<img src="00068.png" />
+PrnBmp6:
+<img src="00069.png" />
+PrnBmp7:
+<img src="00070.png" />
+
+.ramsect
+Temp:	.block 20
+Col80Adj:	.block 2	; possible adjustment to pre
+Byt80Adj:	.block 1	; as Col80Adj, but for bytes
+Volume:	.block 120	; volume, issue string
+PresPg:	.block 1	; which presents page on
+DocList:	.block 1000	; list of articles
+DocsTot:	.block 2	; total articles
+DocsPtr:	.block 2	; pointer to next doc to show
+DocsOnPg:	.block 2	; number of docs shown/pg
+DocBoxP:	.block 1	; Y of first doc box
+DocsPtr2:	.block 2	; temp pointer for box srching
+DocsOnP2:	.block 2	; count-up to DocsOnPg
+Selected:	.block 2	; pointer to name of selected
+SelLoad:	.block 20	; potential filename to load
+DskTopP:	.block 2	; where the DESKTOP string is
+; that's all folks!
+PBuf1:	.block 640	; print buffer #1
+PBuf2:	.block 640	; print buffer #2
+CardBuf:	.block (26 * 150)	; enough cards for 150 pages
+FontBuf:	.block 2000	; actual font data	
+</pre></body></html>
